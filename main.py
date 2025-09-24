@@ -1,7 +1,8 @@
 import os
+import json
 from PIL import Image, ImageDraw, ImageFont, ExifTags, ImageTk
 import customtkinter
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 # A mapping of color names to RGBA values
@@ -45,19 +46,26 @@ def parse_color(color_str, opacity):
 
 def get_position(img_size, text_size, position, margin):
     """Calculates the (x, y) coordinates for the watermark text."""
+    if ',' in position:
+        try:
+            x, y = map(int, map(float, position.split(',')))
+            return (x, y)
+        except ValueError:
+            position = "bottom-right"
+
     img_width, img_height = img_size
     text_width, text_height = text_size
 
     positions = {
         "top-left": (margin, margin),
-        "top-center": ((img_width - text_width) / 2, margin),
-        "top-right": (img_width - text_width - margin, margin),
-        "center-left": (margin, (img_height - text_height) / 2),
-        "center": ((img_width - text_width) / 2, (img_height - text_height) / 2),
-        "center-right": (img_width - text_width - margin, (img_height - text_height) / 2),
-        "bottom-left": (margin, img_height - text_height - margin),
-        "bottom-center": ((img_width - text_width) / 2, img_height - text_height - margin),
-        "bottom-right": (img_width - text_width - margin, img_height - text_height - margin),
+        "top-center": (int((img_width - text_width) / 2), margin),
+        "top-right": (int(img_width - text_width - margin), margin),
+        "center-left": (margin, int((img_height - text_height) / 2)),
+        "center": (int((img_width - text_width) / 2), int((img_height - text_height) / 2)),
+        "center-right": (int(img_width - text_width - margin), int((img_height - text_height) / 2)),
+        "bottom-left": (margin, int(img_height - text_height - margin)),
+        "bottom-center": (int((img_width - text_width) / 2), int(img_height - text_height - margin)),
+        "bottom-right": (int(img_width - text_width - margin), int(img_height - text_height - margin)),
     }
     return positions.get(position, positions["bottom-right"])
 
@@ -72,7 +80,7 @@ def generate_watermarked_image(img, watermark_text, font_size, color, position, 
     except IOError:
         font = ImageFont.load_default()
 
-    text_color_opaque = parse_color(color, 100)
+    text_color_with_opacity = parse_color(color, opacity)
 
     try:
         bbox = draw.textbbox((0, 0), watermark_text, font=font)
@@ -83,30 +91,22 @@ def generate_watermarked_image(img, watermark_text, font_size, color, position, 
         text_size = draw.textsize(watermark_text, font)
 
     text_position = get_position(base_img.size, text_size, position, margin=10)
-    draw.text(text_position, watermark_text, font=font, fill=text_color_opaque)
-
-    if opacity < 100:
-        alpha = txt_layer.split()[3]
-        alpha = alpha.point(lambda p: p * (1.0 - (opacity / 100.0)))
-        txt_layer.putalpha(alpha)
+    draw.text(text_position, watermark_text, font=font, fill=text_color_with_opacity)
 
     watermarked_img = Image.alpha_composite(base_img, txt_layer)
-    return watermarked_img
+    return watermarked_img, text_size
 
-def add_watermark(image_path, output_dir, watermark_text, font_size, color, position, opacity, output_format):
-    """Adds a watermark to an image and saves it."""
+def add_watermark(image_path, output_path, watermark_text, font_size, color, position, opacity, output_format):
+    """Adds a watermark to an image and saves it to the specified output path."""
     try:
         with Image.open(image_path).convert("RGBA") as img:
-            watermarked_img = generate_watermarked_image(img, watermark_text, font_size, color, position, opacity)
+            watermarked_img, _ = generate_watermarked_image(img, watermark_text, font_size, color, position, opacity)
             
             save_format = output_format.upper()
             if save_format == 'JPEG':
                 watermarked_img = watermarked_img.convert("RGB")
             
-            filename = os.path.basename(image_path)
-            output_path = os.path.join(output_dir, filename)
-            if save_format == 'PNG':
-                output_path = os.path.splitext(output_path)[0] + '.png'
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             watermarked_img.save(output_path, format=save_format)
             print(f"Saved watermarked image to: {output_path}")
@@ -121,32 +121,29 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
         self.title("水印应用")
         self.geometry("1280x720")
+
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
         self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure(2, minsize=350) # Give right frame a minimum width
+        self.grid_columnconfigure(2, minsize=350)
         self.grid_rowconfigure(0, weight=1)
 
-        # --- 左侧控制面板 ---
-        self.left_frame = customtkinter.CTkFrame(self, width=300, corner_radius=0)
+        self.left_frame = customtkinter.CTkScrollableFrame(self, label_text="控制面板", width=300, corner_radius=0)
         self.left_frame.grid(row=0, column=0, sticky="nswe")
-        self.left_frame.grid_rowconfigure(10, weight=1)
 
-        # --- 中间预览面板 ---
         self.center_frame = customtkinter.CTkFrame(self, corner_radius=0)
         self.center_frame.grid(row=0, column=1, sticky="nswe", padx=10, pady=10)
         self.center_frame.grid_rowconfigure(0, weight=1)
         self.center_frame.grid_columnconfigure(0, weight=1)
 
-        # --- 右侧文件列表 ---
         self.right_frame = customtkinter.CTkFrame(self, corner_radius=0)
         self.right_frame.grid(row=0, column=2, sticky="nswe")
         self.right_frame.grid_rowconfigure(0, weight=1)
         self.right_frame.grid_columnconfigure(0, weight=1)
 
-        # --- Drag and Drop Setup ---
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<Drop>>', self.handle_drop)
 
-        # --- 左侧面板控件 (unchanged) ---
         self.select_files_button = customtkinter.CTkButton(self.left_frame, text="选择图片", command=self.select_files)
         self.select_files_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
         self.select_folder_button = customtkinter.CTkButton(self.left_frame, text="选择文件夹", command=self.select_folder)
@@ -189,20 +186,57 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                                              command=lambda p=pos_name: self.set_position(p))
             button.grid(row=row, column=col, padx=3, pady=3)
 
-        # --- 中间面板控件 ---
+        self.naming_rule_label = customtkinter.CTkLabel(self.left_frame, text="命名规则:")
+        self.naming_rule_label.grid(row=13, column=0, padx=10, pady=(20, 0), sticky="w")
+        self.naming_rule_var = customtkinter.StringVar(value="原文件名")
+        self.naming_rule_options = customtkinter.CTkSegmentedButton(self.left_frame, values=["原文件名", "加前缀", "加后缀"], variable=self.naming_rule_var, command=self.toggle_prefix_suffix_entry)
+        self.naming_rule_options.grid(row=14, column=0, padx=10, pady=5, sticky="ew")
+        self.prefix_suffix_var = customtkinter.StringVar(value="watermarked_")
+        self.prefix_suffix_entry = customtkinter.CTkEntry(self.left_frame, textvariable=self.prefix_suffix_var)
+
+        self.process_button = customtkinter.CTkButton(self.left_frame, text="开始处理", command=self.process_images)
+        self.process_button.grid(row=16, column=0, padx=10, pady=(20, 5), sticky="ew")
+        self.progressbar = customtkinter.CTkProgressBar(self.left_frame)
+        self.progressbar.grid(row=17, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.progressbar.set(0)
+
         self.preview_label = customtkinter.CTkLabel(self.center_frame, text="请从右侧列表选择一张图片以预览效果", anchor="center")
         self.preview_label.grid(row=0, column=0, sticky="nswe")
+        self.preview_label.bind("<ButtonPress-1>", self.on_drag_start)
+        self.preview_label.bind("<B1-Motion>", self.on_drag_motion)
 
-        # --- 右侧面板控件 ---
         self.image_list_frame = customtkinter.CTkScrollableFrame(self.right_frame, label_text="已选图片")
         self.image_list_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nswe")
 
-        # --- 状态变量 ---
         self.image_paths = []
         self.output_dir = ""
         self.thumbnail_images = []
         self.selected_image_path = None
         self.preview_image_object = None
+        self.original_pil_image = None
+        self.watermark_text_size = (0, 0)
+        self.drag_start_pos = None
+        self.drag_start_watermark_pos = None
+
+        self.load_settings()
+        self.toggle_prefix_suffix_entry()
+
+    def on_drag_start(self, event):
+        if self.preview_image_object:
+            self.drag_start_pos = (event.x, event.y)
+            current_pos_str = self.position_var.get()
+            preview_size = self.preview_image_object.cget("size")
+            watermark_pos = get_position(preview_size, self.watermark_text_size, current_pos_str, margin=10)
+            self.drag_start_watermark_pos = watermark_pos
+
+    def on_drag_motion(self, event):
+        if self.drag_start_pos and self.preview_image_object:
+            dx = event.x - self.drag_start_pos[0]
+            dy = event.y - self.drag_start_pos[1]
+            new_x = self.drag_start_watermark_pos[0] + dx
+            new_y = self.drag_start_watermark_pos[1] + dy
+            self.position_var.set(f"{new_x},{new_y}")
+            self.update_preview()
 
     def _on_text_change(self, *args):
         self.update_preview()
@@ -253,15 +287,14 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
         if was_selected:
             if self.image_paths:
-                # Automatically select the new first image for preview
                 self.select_image_for_preview(self.image_paths[0])
             else:
-                # No images left, clear the preview panel
                 self.clear_preview()
 
     def clear_preview(self):
         self.selected_image_path = None
         self.preview_image_object = None
+        self.original_pil_image = None
         self.preview_label.configure(image=None, text="请从右侧列表选择一张图片以预览效果")
 
     def update_image_list(self):
@@ -271,12 +304,10 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
         for i, path in enumerate(self.image_paths):
             try:
-                # Create a frame for each item
                 item_frame = customtkinter.CTkFrame(self.image_list_frame)
                 item_frame.pack(fill="x", padx=5, pady=5)
                 item_frame.grid_columnconfigure(1, weight=1)
 
-                # Thumbnail
                 img = Image.open(path)
                 img.thumbnail((60, 60))
                 ctk_img = customtkinter.CTkImage(light_image=img, dark_image=img, size=(60, 60))
@@ -286,12 +317,10 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                 thumb_label.grid(row=0, column=0, padx=5, pady=5)
                 thumb_label.bind("<Button-1>", lambda e, p=path: self.select_image_for_preview(p))
 
-                # Filename
                 filename_label = customtkinter.CTkLabel(item_frame, text=os.path.basename(path), anchor="w")
                 filename_label.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
                 filename_label.bind("<Button-1>", lambda e, p=path: self.select_image_for_preview(p))
 
-                # Delete Button
                 delete_button = customtkinter.CTkButton(
                     item_frame, text="X", width=30, height=30, 
                     fg_color="transparent", text_color=("gray10", "gray90"),
@@ -304,6 +333,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
     def select_image_for_preview(self, path):
         self.selected_image_path = path
+        self.original_pil_image = None # Reset to force reload
         self.update_preview()
 
     def update_preview(self):
@@ -318,8 +348,29 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             font_size = 50
             color = "white"
 
-            pil_image = Image.open(self.selected_image_path).convert("RGBA")
-            watermarked_pil_image = generate_watermarked_image(pil_image, watermark_text, font_size, color, position, opacity)
+            if self.original_pil_image is None:
+                self.original_pil_image = Image.open(self.selected_image_path).convert("RGBA")
+
+            final_position_str = position
+            if ',' in position:
+                if self.preview_image_object:
+                    preview_size = self.preview_image_object.cget("size")
+                    original_size = self.original_pil_image.size
+                    try:
+                        preview_x, preview_y = map(float, position.split(','))
+                        scale_x = original_size[0] / preview_size[0]
+                        scale_y = original_size[1] / preview_size[1]
+                        original_x = int(preview_x * scale_x)
+                        original_y = int(preview_y * scale_y)
+                        final_position_str = f"{original_x},{original_y}"
+                    except (ValueError, ZeroDivisionError):
+                        final_position_str = "bottom-right"
+                else:
+                    final_position_str = "bottom-right"
+
+            watermarked_pil_image, text_size = generate_watermarked_image(
+                self.original_pil_image, watermark_text, font_size, color, final_position_str, opacity
+            )
 
             panel_width = self.center_frame.winfo_width()
             panel_height = self.center_frame.winfo_height()
@@ -344,12 +395,16 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             self.preview_image_object = ctk_image
             self.preview_label.configure(image=ctk_image, text="")
 
+            original_text_w, original_text_h = text_size
+            if self.original_pil_image.width > 0 and self.original_pil_image.height > 0:
+                scale_w = new_width / self.original_pil_image.width
+                scale_h = new_height / self.original_pil_image.height
+                self.watermark_text_size = (int(original_text_w * scale_w), int(original_text_h * scale_h))
+
         except Exception as e:
             print(f"无法更新预览: {e}")
-            self.preview_label.configure(text=f"无法加载图片:\n{os.path.basename(self.selected_image_path)}")
 
     def handle_drop(self, event):
-        """Handles files dropped onto the window."""
         filepaths = self.tk.splitlist(event.data)
         added_paths = []
         for path in filepaths:
@@ -361,6 +416,118 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             self.update_image_list()
             if not self.selected_image_path:
                 self.select_image_for_preview(added_paths[0])
+
+    def toggle_prefix_suffix_entry(self, value=None):
+        if self.naming_rule_var.get() in ["加前缀", "加后缀"]:
+            self.prefix_suffix_entry.grid(row=15, column=0, padx=10, pady=5, sticky="ew")
+        else:
+            self.prefix_suffix_entry.grid_forget()
+
+    def process_images(self):
+        if not self.output_dir:
+            messagebox.showerror("错误", "请先选择一个输出文件夹。")
+            return
+        if not self.image_paths:
+            messagebox.showerror("错误", "列表中没有需要处理的图片。")
+            return
+
+        watermark_text = self.watermark_text_var.get()
+        opacity = self.opacity_var.get()
+        position = self.position_var.get()
+        font_size = 50
+        color = "white"
+        output_format = self.output_format_var.get()
+        naming_rule = self.naming_rule_var.get()
+        prefix_suffix = self.prefix_suffix_var.get()
+
+        total_images = len(self.image_paths)
+        self.progressbar.set(0)
+
+        for i, image_path in enumerate(self.image_paths):
+            final_position_str = position
+            if ',' in position:
+                try:
+                    preview_x, preview_y = map(float, position.split(','))
+                    with Image.open(self.selected_image_path) as preview_img, Image.open(image_path) as target_img:
+                        preview_size = preview_img.size
+                        target_size = target_img.size
+                    scale_x = target_size[0] / preview_size[0]
+                    scale_y = target_size[1] / preview_size[1]
+                    original_x = int(preview_x * scale_x)
+                    original_y = int(preview_y * scale_y)
+                    final_position_str = f"{original_x},{original_y}"
+                except Exception as e:
+                    print(f"Could not scale position for {os.path.basename(image_path)}: {e}")
+                    final_position_str = "bottom-right"
+
+            base, ext = os.path.splitext(os.path.basename(image_path))
+            
+            if naming_rule == "加前缀":
+                new_name = f"{prefix_suffix}{base}{ext}"
+            elif naming_rule == "加后缀":
+                new_name = f"{base}{prefix_suffix}{ext}"
+            else:
+                new_name = f"{base}{ext}"
+
+            if output_format.upper() == 'PNG':
+                new_name = f"{os.path.splitext(new_name)[0]}.png"
+            else:
+                new_name = f"{os.path.splitext(new_name)[0]}.jpg"
+
+            output_path = os.path.join(self.output_dir, new_name)
+
+            add_watermark(
+                image_path, output_path, watermark_text, font_size, color,
+                final_position_str, opacity, output_format
+            )
+            
+            progress = (i + 1) / total_images
+            self.progressbar.set(progress)
+            self.update_idletasks()
+
+        self.progressbar.set(1)
+        messagebox.showinfo("处理完成", f"成功为 {total_images} 张图片添加了水印！")
+        self.progressbar.set(0)
+
+    def on_closing(self):
+        self.save_settings()
+        self.destroy()
+
+    def save_settings(self):
+        settings = {
+            "output_dir": self.output_dir,
+            "output_format": self.output_format_var.get(),
+            "watermark_text": self.watermark_text_var.get(),
+            "opacity": self.opacity_var.get(),
+            "position": self.position_var.get(),
+            "naming_rule": self.naming_rule_var.get(),
+            "prefix_suffix": self.prefix_suffix_var.get(),
+        }
+        try:
+            with open("settings.json", "w") as f:
+                json.dump(settings, f, indent=4)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+
+    def load_settings(self):
+        try:
+            if os.path.exists("settings.json"):
+                with open("settings.json", "r") as f:
+                    settings = json.load(f)
+                    
+                    self.output_dir = settings.get("output_dir", "")
+                    self.output_format_var.set(settings.get("output_format", "JPEG"))
+                    self.watermark_text_var.set(settings.get("watermark_text", "Hello World"))
+                    self.opacity_var.set(settings.get("opacity", 70))
+                    self.position_var.set(settings.get("position", "bottom-right"))
+                    self.naming_rule_var.set(settings.get("naming_rule", "原文件名"))
+                    self.prefix_suffix_var.set(settings.get("prefix_suffix", "watermarked_"))
+
+                    if self.output_dir:
+                        self.output_dir_label.configure(text=f"输出到:\n{self.output_dir}")
+                    self.opacity_label.configure(text=f"透明度: {int(self.opacity_var.get())}%")
+        except Exception as e:
+            print(f"Error loading settings: {e}")
 
 if __name__ == "__main__":
     app = App()
