@@ -2,6 +2,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont, ExifTags, ImageTk
 import customtkinter
 from tkinter import filedialog
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 # A mapping of color names to RGBA values
 COLOR_MAP = {
@@ -113,9 +114,10 @@ def add_watermark(image_path, output_dir, watermark_text, font_size, color, posi
     except Exception as e:
         print(f"Could not process {os.path.basename(image_path)}: {e}")
 
-class App(customtkinter.CTk):
+class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
         super().__init__()
+        self.TkdndVersion = TkinterDnD._require(self)
 
         self.title("水印应用")
         self.geometry("1280x720")
@@ -139,6 +141,10 @@ class App(customtkinter.CTk):
         self.right_frame.grid(row=0, column=2, sticky="nswe")
         self.right_frame.grid_rowconfigure(0, weight=1)
         self.right_frame.grid_columnconfigure(0, weight=1)
+
+        # --- Drag and Drop Setup ---
+        self.drop_target_register(DND_FILES)
+        self.dnd_bind('<<Drop>>', self.handle_drop)
 
         # --- 左侧面板控件 (unchanged) ---
         self.select_files_button = customtkinter.CTkButton(self.left_frame, text="选择图片", command=self.select_files)
@@ -241,19 +247,17 @@ class App(customtkinter.CTk):
             self.select_image_for_preview(added_paths[0])
 
     def remove_image(self, path_to_remove):
+        was_selected = (self.selected_image_path == path_to_remove)
         self.image_paths.remove(path_to_remove)
-
-        # If the deleted image was the one being previewed, clear the preview.
-        if self.selected_image_path == path_to_remove:
-            self.clear_preview()
-
-        # Update the visual list of images.
         self.update_image_list()
 
-        # Asynchronously schedule the preview of the next item.
-        # This gives the UI time to update before we try to draw a new preview.
-        if self.image_paths and not self.selected_image_path:
-            self.after(50, lambda: self.select_image_for_preview(self.image_paths[0]))
+        if was_selected:
+            if self.image_paths:
+                # Automatically select the new first image for preview
+                self.select_image_for_preview(self.image_paths[0])
+            else:
+                # No images left, clear the preview panel
+                self.clear_preview()
 
     def clear_preview(self):
         self.selected_image_path = None
@@ -343,6 +347,20 @@ class App(customtkinter.CTk):
         except Exception as e:
             print(f"无法更新预览: {e}")
             self.preview_label.configure(text=f"无法加载图片:\n{os.path.basename(self.selected_image_path)}")
+
+    def handle_drop(self, event):
+        """Handles files dropped onto the window."""
+        filepaths = self.tk.splitlist(event.data)
+        added_paths = []
+        for path in filepaths:
+            if path.lower().endswith((".png", ".jpg", ".jpeg")) and path not in self.image_paths:
+                self.image_paths.append(path)
+                added_paths.append(path)
+        
+        if added_paths:
+            self.update_image_list()
+            if not self.selected_image_path:
+                self.select_image_for_preview(added_paths[0])
 
 if __name__ == "__main__":
     app = App()
