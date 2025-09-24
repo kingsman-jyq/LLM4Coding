@@ -1,7 +1,7 @@
 
 import os
 from PIL import Image, ImageDraw, ImageFont, ExifTags
-import argparse
+import customtkinter
 
 # A mapping of color names to RGBA values
 COLOR_MAP = {
@@ -89,32 +89,13 @@ def add_watermark(image_path, output_dir, font_size, color, position, opacity):
     except Exception as e:
         print(f"Could not process {os.path.basename(image_path)}: {e}")
 
-def main():
-    """Main function to process a directory of images."""
-    parser = argparse.ArgumentParser(description="Add date watermarks to images based on EXIF data.")
-    parser.add_argument("image_dir", help="Path to the directory containing images.")
-    parser.add_argument("-s", "--font-size", type=int, default=50, help="Font size for the watermark text. Default: 50.")
-    parser.add_argument("-c", "--color", default="white", help="Color of the watermark. Can be a name (e.g., 'white', 'red') or an RGB string 'R,G,B'. Default: 'white'.")
-    parser.add_argument("-p", "--position", default="bottom-right", choices=["top-left", "top-right", "bottom-left", "bottom-right", "center"], help="Position of the watermark. Default: 'bottom-right'.")
-    parser.add_argument("-o", "--opacity", type=int, default=70, help="Opacity of the watermark text (0-100). Default: 70.")
+class App(customtkinter.CTk):
+    def __init__(self):
+        super().__init__()
 
-    args = parser.parse_args()
-
-    input_dir = args.image_dir
-    if not os.path.isdir(input_dir):
-        print(f"Error: Directory not found at {input_dir}")
-        return
-
-    # Create the output directory as a subdirectory of the input directory
-    output_dir = os.path.join(input_dir, f"{os.path.basename(os.path.abspath(input_dir))}_watermark")
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"Created output directory: {output_dir}")
-
-    for filename in os.listdir(input_dir):
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
-            image_path = os.path.join(input_dir, filename)
-            add_watermark(image_path, output_dir, args.font_size, args.color, args.position, args.opacity)
+        self.title("水印应用")
+        self.geometry("800x600")
 
 if __name__ == "__main__":
-    main()
+    app = App()
+    app.mainloop()
