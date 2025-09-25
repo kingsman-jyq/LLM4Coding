@@ -1,18 +1,22 @@
-# Image Date Watermarker
+# Image Watermark App
 
-A Python script to automatically add date watermarks to a batch of images. The script extracts the original creation date from the image's EXIF metadata and applies it as a customizable watermark.
+A user-friendly desktop application for adding customizable text watermarks to your images in batches. Built with Python and customtkinter, it offers a modern and intuitive graphical user interface (GUI).
 
 ## Features
 
-- **Automatic Date Extraction**: Reads the 'DateTimeOriginal' tag from EXIF data.
-- **Batch Processing**: Process an entire directory of images at once.
+- **Intuitive GUI**: A clean and modern interface that is easy to navigate.
+- **Batch Processing**: Add images individually, by folder, or simply by dragging and dropping them into the app.
+- **Live Preview**: See your watermark adjustments in real-time on a selected image before processing.
+- **Flexible Input**: Supports common image formats like `JPEG` and `PNG`.
 - **Customizable Watermark**:
-    - Font Size
-    - Color (by name or RGB value)
-    - Position (top-left, top-right, bottom-left, bottom-right, center)
-    - Opacity
-- **Safe Output**: Creates a new sub-directory for watermarked images, leaving original files untouched.
-- **Cross-Platform**: Uses default fonts if specific ones like Arial are not found.
+    - **Text**: Use any custom text for your watermark.
+    - **Opacity**: Adjust transparency from 0% to 100% with a simple slider.
+    - **Position**: Place your watermark using a 9-point grid for quick placement, or simply drag the watermark on the preview image to position it exactly where you want.
+- **Output Control**:
+    - Choose between `JPEG` or `PNG` as the output format.
+    - Specify a dedicated output folder to keep your original images safe and untouched.
+    - Define file naming rules: keep the original name, add a prefix, or add a suffix.
+- **Settings Persistence**: The app automatically saves your last-used settings (e.g., output path, opacity) and reloads them on startup for a faster workflow.
 
 ## Prerequisites
 
@@ -46,33 +50,23 @@ A Python script to automatically add date watermarks to a batch of images. The s
 
 ## Usage
 
-Run the script from your terminal, pointing it to the directory containing your images.
+1.  **Run the application from your terminal:**
+    ```bash
+    python main.py
+    ```
 
-### Basic Usage
+2.  **Add Images**: Use the "Select Images" or "Select Folder" buttons. You can also drag and drop image files directly onto the application window. Your selected images will appear in the list on the right.
 
-```bash
-python main.py "C:\path\to\your\image_folder"
-```
+3.  **Set Output Location**: Click "Select Output Folder" to choose where your watermarked images will be saved.
 
-This will process all images in the specified folder using the default settings and save them to a new folder named `image_folder_watermark`.
+4.  **Customize Watermark**: Use the controls in the left-hand panel to:
+    - Change the watermark text.
+    - Adjust the opacity.
+    - Select an output format (`JPEG` or `PNG`).
+    - Define the file naming rule.
 
-### Advanced Options
+5.  **Position the Watermark**:
+    - Click one of the nine buttons in the position grid for quick placement.
+    - For precise control, click and drag the watermark directly within the preview image area.
 
-You can customize the watermark using the following command-line arguments:
-
-- `-s`, `--font-size`: Set the font size. (Default: 50)
-- `-c`, `--color`: Set the text color. Can be a name (e.g., `red`, `black`) or an RGB value (e.g., "0,0,255"). (Default: "white")
-- `-p`, `--position`: Set the watermark position. (Choices: `top-left`, `top-right`, `bottom-left`, `bottom-right`, `center`). (Default: "bottom-right")
-- `-o`, `--opacity`: Set the text opacity from 0 (transparent) to 100 (opaque). (Default: 70)
-
-### Examples
-
-**Red watermark in the top-left corner:**
-```bash
-python main.py "C:\Photos\Vacation" -c red -p top-left
-```
-
-**Large, semi-transparent blue watermark in the center:**
-```bash
-python main.py "D:\Pictures" --font-size 120 --color "0,0,255" --position center --opacity 50
-```
+6.  **Start Processing**: Once you are happy with the settings and preview, click the "Start Processing" button to apply the watermark to all the images in your list.
