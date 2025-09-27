@@ -72,7 +72,7 @@ def get_position(img_size, text_size, position, margin):
     }
     return positions.get(position, positions["bottom-right"])
 
-def generate_watermarked_image(img, watermark_text, font_size, color, position, opacity, font_name="arial.ttf", is_bold=False, is_italic=False, shadow_enabled=False, shadow_color="black", shadow_offset=(2, 2)):
+def generate_watermarked_image(img, watermark_text, font_size, color, position, opacity, font_name="arial.ttf", is_bold=False, is_italic=False, shadow_enabled=False, shadow_color="black", shadow_offset=(2, 2), rotation=0):
     """Applies a watermark to a PIL Image object and returns a new watermarked image object."""
     base_img = img.copy().convert("RGBA")
     txt_layer = Image.new("RGBA", base_img.size, (255, 255, 255, 0))
@@ -116,17 +116,25 @@ def generate_watermarked_image(img, watermark_text, font_size, color, position, 
 
     text_position = get_position(base_img.size, text_size, position, margin=10)
 
+    # Create a transparent layer for the text to allow rotation
+    text_img = Image.new("RGBA", text_size, (255, 255, 255, 0))
+    text_draw = ImageDraw.Draw(text_img)
+
     if shadow_enabled:
         shadow_color_with_opacity = parse_color(shadow_color, opacity)
-        shadow_pos = (text_position[0] + shadow_offset[0], text_position[1] + shadow_offset[1])
-        draw.text(shadow_pos, watermark_text, font=font, fill=shadow_color_with_opacity)
+        text_draw.text((-bbox[0], -bbox[1]), watermark_text, font=font, fill=shadow_color_with_opacity)
 
-    draw.text(text_position, watermark_text, font=font, fill=text_color_with_opacity)
+    text_draw.text((-bbox[0], -bbox[1]), watermark_text, font=font, fill=text_color_with_opacity)
+
+    if rotation != 0:
+        text_img = text_img.rotate(rotation, expand=True, resample=Image.BICUBIC)
+    
+    txt_layer.paste(text_img, text_position, text_img)
 
     watermarked_img = Image.alpha_composite(base_img, txt_layer)
-    return watermarked_img, text_size
+    return watermarked_img, text_img.size
 
-def generate_image_watermarked_image(img, image_wm_path, scale, opacity, position):
+def generate_image_watermarked_image(img, image_wm_path, scale, opacity, position, rotation=0):
     """Applies an image watermark to a PIL Image object."""
     base_img = img.copy().convert("RGBA")
     
@@ -149,6 +157,10 @@ def generate_image_watermarked_image(img, image_wm_path, scale, opacity, positio
         alpha = alpha.point(lambda p: p * ((100 - opacity) / 100))
         watermark.putalpha(alpha)
 
+    # Rotate watermark
+    if rotation != 0:
+        watermark = watermark.rotate(rotation, expand=True, resample=Image.BICUBIC)
+
     # Position watermark
     wm_size = watermark.size
     paste_position = get_position(base_img.size, wm_size, position, margin=10)
@@ -160,7 +172,7 @@ def generate_image_watermarked_image(img, image_wm_path, scale, opacity, positio
     watermarked_img = Image.alpha_composite(base_img, txt_layer)
     return watermarked_img, wm_size
 
-def add_watermark(image_path, output_path, watermark_type, position, output_format, jpeg_quality=95, resize_enabled=False, output_width=None, output_height=None, text="", font_size=50, font_color="white", opacity=70, font_name="arial.ttf", is_bold=False, is_italic=False, shadow_enabled=False, shadow_color="black", image_path_wm=None, image_scale=50, image_opacity=70, **kwargs):
+def add_watermark(image_path, output_path, watermark_type, position, output_format, jpeg_quality=95, resize_enabled=False, output_width=None, output_height=None, text="", font_size=50, font_color="white", opacity=70, font_name="arial.ttf", is_bold=False, is_italic=False, shadow_enabled=False, shadow_color="black", image_path_wm=None, image_scale=50, image_opacity=70, rotation=0, **kwargs):
     """Adds a watermark to an image and saves it to the specified output path."""
     try:
         with Image.open(image_path) as img:
@@ -187,11 +199,11 @@ def add_watermark(image_path, output_path, watermark_type, position, output_form
             if watermark_type == "文本":
                 watermarked_img, _ = generate_watermarked_image(
                     img, text, font_size, font_color, position, opacity, font_name, 
-                    is_bold, is_italic, shadow_enabled, shadow_color
+                    is_bold, is_italic, shadow_enabled, shadow_color, rotation=rotation
                 )
             else: # Image watermark
                 watermarked_img, _ = generate_image_watermarked_image(
-                    img, image_path_wm, image_scale, image_opacity, position
+                    img, image_path_wm, image_scale, image_opacity, position, rotation=rotation
                 )
 
             save_format = output_format.upper()

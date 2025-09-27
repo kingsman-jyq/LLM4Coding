@@ -21,7 +21,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.grid_rowconfigure(1, weight=1) # Make preview area scalable
 
         # --- Create Frames ---
-        self.left_frame = customtkinter.CTkScrollableFrame(self, label_text="文件与输出", width=300, corner_radius=0)
+        self.left_frame = customtkinter.CTkScrollableFrame(self, label_text="文件与输出", width=350, corner_radius=0)
         self.left_frame.grid(row=0, column=0, rowspan=2, sticky="nswe")
 
         self.right_frame = customtkinter.CTkScrollableFrame(self, label_text="已选图片", corner_radius=0)
@@ -65,6 +65,11 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.image_watermark_path_var = customtkinter.StringVar()
         self.image_watermark_scale_var = customtkinter.DoubleVar(value=50)
         self.image_watermark_opacity_var = customtkinter.DoubleVar(value=70)
+        self.rotation_var = customtkinter.DoubleVar(value=0)
+
+        # --- Template Variables ---
+        self.template_var = customtkinter.StringVar(value="")
+        self.templates = []
 
         # --- Left Frame Widgets ---
         self.select_files_button = customtkinter.CTkButton(self.left_frame, text="选择图片", command=self.select_files)
@@ -113,8 +118,24 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
         self.process_button = customtkinter.CTkButton(self.left_frame, text="开始处理", command=self.process_images)
         self.process_button.grid(row=13, column=0, padx=10, pady=(20, 5), sticky="ew")
+
+        # --- Template Controls ---
+        template_frame = customtkinter.CTkFrame(self.left_frame)
+        template_frame.grid(row=14, column=0, padx=10, pady=(20, 0), sticky="ew")
+        template_frame.grid_columnconfigure(0, weight=1)
+
+        self.template_label = customtkinter.CTkLabel(template_frame, text="水印模板:")
+        self.template_label.grid(row=0, column=0, columnspan=2, padx=10, pady=(5, 0), sticky="w")
+        self.template_menu = customtkinter.CTkOptionMenu(template_frame, variable=self.template_var, command=self.load_template)
+        self.template_menu.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+
+        self.save_template_button = customtkinter.CTkButton(template_frame, text="保存模板", command=self.save_template)
+        self.save_template_button.grid(row=2, column=0, padx=(10, 5), pady=5, sticky="ew")
+        self.delete_template_button = customtkinter.CTkButton(template_frame, text="删除模板", command=self.delete_template)
+        self.delete_template_button.grid(row=2, column=1, padx=(5, 10), pady=5, sticky="ew")
+
         self.progressbar = customtkinter.CTkProgressBar(self.left_frame)
-        self.progressbar.grid(row=14, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.progressbar.grid(row=15, column=0, padx=10, pady=(20, 10), sticky="ew")
         self.progressbar.set(0)
 
         # --- Top Controls Widgets ---
@@ -176,11 +197,24 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.shadow_color_label = customtkinter.CTkLabel(effects_frame, text=self.shadow_color_var.get(), width=60)
         self.shadow_color_label.grid(row=0, column=4, padx=(0, 10))
 
-        # Row 3: Position
-        self.position_label = customtkinter.CTkLabel(self.text_watermark_frame, text="位置:")
-        self.position_label.grid(row=3, column=0, padx=(10, 5), pady=5)
-        position_frame = customtkinter.CTkFrame(top_controls_frame)
-        position_frame.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="w")
+        # --- Position and Rotation Controls (Shared) ---
+        position_rotation_frame = customtkinter.CTkFrame(top_controls_frame)
+        position_rotation_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        position_rotation_frame.grid_columnconfigure(3, weight=1)
+
+        position_label = customtkinter.CTkLabel(position_rotation_frame, text="位置:")
+        position_label.grid(row=0, column=0, padx=(10, 5), pady=5)
+
+        position_frame = customtkinter.CTkFrame(position_rotation_frame)
+        position_frame.grid(row=0, column=1, padx=(0, 10), pady=5, sticky="w")
+
+        rotation_label = customtkinter.CTkLabel(position_rotation_frame, text="旋转:")
+        rotation_label.grid(row=0, column=2, padx=(20, 5), pady=5)
+        self.rotation_slider = customtkinter.CTkSlider(position_rotation_frame, from_=0, to=360, variable=self.rotation_var, command=self._on_rotation_change)
+        self.rotation_slider.grid(row=0, column=3, padx=(0, 10), pady=5, sticky="ew")
+
+        self.rotation_value_label = customtkinter.CTkLabel(position_rotation_frame, text="0°", width=40)
+        self.rotation_value_label.grid(row=0, column=4, padx=(5, 10), pady=5)
 
         # --- Image Watermark Controls ---
         self.select_image_wm_button = customtkinter.CTkButton(self.image_watermark_frame, text="选择水印图片", command=self.select_image_watermark)
@@ -224,6 +258,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self._toggle_jpeg_quality_slider()
         self._toggle_resize_entries()
         self._switch_watermark_type(self.watermark_type_var.get())
+        self.update_template_menu()
 
     def _on_jpeg_quality_change(self, value):
         self.jpeg_quality_label.configure(text=f"JPEG 质量: {int(value)}%")
@@ -255,6 +290,10 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
     def _on_image_opacity_change(self, value):
         self.image_wm_opacity_label.configure(text=f"透明度: {int(value)}%")
+        self.update_preview()
+
+    def _on_rotation_change(self, value):
+        self.rotation_value_label.configure(text=f"{int(value)}°")
         self.update_preview()
 
     def _switch_watermark_type(self, value):
@@ -440,6 +479,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
             watermark_type = self.watermark_type_var.get()
             position = self.position_var.get()
+            rotation = self.rotation_var.get()
 
             if watermark_type == "文本":
                 watermark_text = self.watermark_text_var.get()
@@ -474,7 +514,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
                 watermarked_pil_image, text_size = generate_watermarked_image(
                     self.original_pil_image, watermark_text, font_size, color, final_position_str, opacity, font_name,
-                    is_bold=is_bold, is_italic=is_italic, shadow_enabled=shadow_enabled, shadow_color=shadow_color
+                    is_bold=is_bold, is_italic=is_italic, shadow_enabled=shadow_enabled, shadow_color=shadow_color, rotation=rotation
                 )
                 self.watermark_original_size = text_size
             else: # Image watermark
@@ -487,7 +527,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                 opacity = self.image_watermark_opacity_var.get()
 
                 watermarked_pil_image, wm_size = generate_image_watermarked_image(
-                    self.original_pil_image, image_wm_path, scale, opacity, position
+                    self.original_pil_image, image_wm_path, scale, opacity, position, rotation
                 )
                 self.watermark_original_size = wm_size # Reuse for drag-and-drop
 
@@ -532,6 +572,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         resize_enabled = self.resize_enabled_var.get()
         output_width = self.output_width_var.get()
         output_height = self.output_height_var.get()
+        rotation = self.rotation_var.get()
 
         # Text watermark specific
         watermark_text = self.watermark_text_var.get()
@@ -614,7 +655,8 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                 # Image-specific
                 image_path_wm=image_wm_path,
                 image_scale=image_wm_scale,
-                image_opacity=image_wm_opacity
+                image_opacity=image_wm_opacity,
+                rotation=rotation
             )
             
             progress = (i + 1) / total_images
@@ -629,8 +671,55 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.save_settings()
         self.destroy()
 
-    def save_settings(self):
-        settings = {
+    def update_template_menu(self):
+        self.templates = []
+        if not os.path.exists("templates"):
+            os.makedirs("templates")
+        for f in os.listdir("templates"):
+            if f.endswith(".json"):
+                self.templates.append(os.path.splitext(f)[0])
+        if not self.templates:
+            self.templates.append("无可用模板")
+        self.template_menu.configure(values=self.templates)
+        self.template_var.set(self.templates[0])
+
+    def save_template(self):
+        dialog = customtkinter.CTkInputDialog(text="输入模板名称:", title="保存模板")
+        template_name = dialog.get_input()
+        if template_name:
+            settings = self.get_current_settings()
+            if not os.path.exists("templates"):
+                os.makedirs("templates")
+            with open(f"templates/{template_name}.json", "w") as f:
+                json.dump(settings, f, indent=4)
+            self.update_template_menu()
+            self.template_var.set(template_name)
+
+    def load_template(self, template_name):
+        if template_name == "无可用模板":
+            return
+        try:
+            with open(f"templates/{template_name}.json", "r") as f:
+                settings = json.load(f)
+                self.load_settings(settings)
+        except FileNotFoundError:
+            messagebox.showerror("错误", f"模板 '{template_name}' 未找到.")
+            self.update_template_menu()
+
+    def delete_template(self):
+        template_name = self.template_var.get()
+        if template_name == "无可用模板":
+            return
+        if messagebox.askyesno("确认删除", f"确定要删除模板 '{template_name}'吗?"):
+            try:
+                os.remove(f"templates/{template_name}.json")
+                self.update_template_menu()
+            except FileNotFoundError:
+                messagebox.showerror("错误", f"模板 '{template_name}' 未找到.")
+                self.update_template_menu()
+
+    def get_current_settings(self):
+        return {
             "output_dir": self.output_dir,
             "output_format": self.output_format_var.get(),
             "watermark_text": self.watermark_text_var.get(),
@@ -653,54 +742,63 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             "image_watermark_path": self.image_watermark_path_var.get(),
             "image_watermark_scale": self.image_watermark_scale_var.get(),
             "image_watermark_opacity": self.image_watermark_opacity_var.get(),
+            "rotation": self.rotation_var.get(),
         }
+
+    def save_settings(self):
+        settings = self.get_current_settings()
         try:
             with open("settings.json", "w") as f:
                 json.dump(settings, f, indent=4)
         except Exception as e:
             print(f"Error saving settings: {e}")
 
-    def load_settings(self):
+    def load_settings(self, settings_dict=None):
         try:
-            if os.path.exists("settings.json"):
+            if settings_dict:
+                settings = settings_dict
+            elif os.path.exists("settings.json"):
                 with open("settings.json", "r") as f:
                     settings = json.load(f)
-                    
-                    self.output_dir = settings.get("output_dir", "")
-                    self.output_format_var.set(settings.get("output_format", "JPEG"))
-                    self.watermark_text_var.set(settings.get("watermark_text", "Hello World"))
-                    self.opacity_var.set(settings.get("opacity", 70))
-                    self.position_var.set(settings.get("position", "bottom-right"))
-                    self.naming_rule_var.set(settings.get("naming_rule", "原文件名"))
-                    self.prefix_suffix_var.set(settings.get("prefix_suffix", "watermarked_"))
-                    self.font_name_var.set(settings.get("font_name", "arial.ttf"))
-                    self.font_size_var.set(settings.get("font_size", "50"))
-                    self.font_color_var.set(settings.get("font_color", "white"))
-                    self.is_bold_var.set(settings.get("is_bold", False))
-                    self.is_italic_var.set(settings.get("is_italic", False))
-                    self.shadow_enabled_var.set(settings.get("shadow_enabled", False))
-                    self.shadow_color_var.set(settings.get("shadow_color", "black"))
-                    self.jpeg_quality_var.set(settings.get("jpeg_quality", 95))
-                    self.resize_enabled_var.set(settings.get("resize_enabled", False))
-                    self.output_width_var.set(settings.get("output_width", ""))
-                    self.output_height_var.set(settings.get("output_height", ""))
+            else:
+                return
 
-                    self.watermark_type_var.set(settings.get("watermark_type", "文本"))
-                    self.image_watermark_path_var.set(settings.get("image_watermark_path", ""))
-                    self.image_watermark_scale_var.set(settings.get("image_watermark_scale", 50))
-                    self.image_watermark_opacity_var.set(settings.get("image_watermark_opacity", 70))
+            self.output_dir = settings.get("output_dir", "")
+            self.output_format_var.set(settings.get("output_format", "JPEG"))
+            self.watermark_text_var.set(settings.get("watermark_text", "Hello World"))
+            self.opacity_var.set(settings.get("opacity", 70))
+            self.position_var.set(settings.get("position", "bottom-right"))
+            self.naming_rule_var.set(settings.get("naming_rule", "原文件名"))
+            self.prefix_suffix_var.set(settings.get("prefix_suffix", "watermarked_"))
+            self.font_name_var.set(settings.get("font_name", "arial.ttf"))
+            self.font_size_var.set(settings.get("font_size", "50"))
+            self.font_color_var.set(settings.get("font_color", "white"))
+            self.is_bold_var.set(settings.get("is_bold", False))
+            self.is_italic_var.set(settings.get("is_italic", False))
+            self.shadow_enabled_var.set(settings.get("shadow_enabled", False))
+            self.shadow_color_var.set(settings.get("shadow_color", "black"))
+            self.jpeg_quality_var.set(settings.get("jpeg_quality", 95))
+            self.resize_enabled_var.set(settings.get("resize_enabled", False))
+            self.output_width_var.set(settings.get("output_width", ""))
+            self.output_height_var.set(settings.get("output_height", ""))
+            self.watermark_type_var.set(settings.get("watermark_type", "文本"))
+            self.image_watermark_path_var.set(settings.get("image_watermark_path", ""))
+            self.image_watermark_scale_var.set(settings.get("image_watermark_scale", 50))
+            self.image_watermark_opacity_var.set(settings.get("image_watermark_opacity", 70))
+            self.rotation_var.set(settings.get("rotation", 0))
 
-                    if self.output_dir:
-                        self.output_dir_label.configure(text=f"输出到:\n{self.output_dir}")
-                    self.opacity_label.configure(text=f"透明度: {int(self.opacity_var.get())}%")
-                    self.font_color_label.configure(text=self.font_color_var.get())
-                    self.shadow_color_label.configure(text=self.shadow_color_var.get())
-                    self._on_jpeg_quality_change(self.jpeg_quality_var.get())
-                    self._toggle_jpeg_quality_slider()
-                    self._toggle_resize_entries()
-                    self._switch_watermark_type(self.watermark_type_var.get())
-                    self.image_wm_path_label.configure(text=os.path.basename(self.image_watermark_path_var.get()) or "未选择图片")
-                    self._on_image_scale_change(self.image_watermark_scale_var.get())
-                    self._on_image_opacity_change(self.image_watermark_opacity_var.get())
+            if self.output_dir:
+                self.output_dir_label.configure(text=f"输出到:\n{self.output_dir}")
+            self.opacity_label.configure(text=f"透明度: {int(self.opacity_var.get())}%")
+            self.font_color_label.configure(text=self.font_color_var.get())
+            self.shadow_color_label.configure(text=self.shadow_color_var.get())
+            self._on_jpeg_quality_change(self.jpeg_quality_var.get())
+            self._toggle_jpeg_quality_slider()
+            self._toggle_resize_entries()
+            self._switch_watermark_type(self.watermark_type_var.get())
+            self.image_wm_path_label.configure(text=os.path.basename(self.image_watermark_path_var.get()) or "未选择图片")
+            self._on_image_scale_change(self.image_watermark_scale_var.get())
+            self._on_image_opacity_change(self.image_watermark_opacity_var.get())
+            self._on_rotation_change(self.rotation_var.get())
         except Exception as e:
             print(f"Error loading settings: {e}")
