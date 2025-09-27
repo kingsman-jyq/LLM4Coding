@@ -2,7 +2,7 @@ import os
 import json
 from PIL import Image, ImageTk
 import customtkinter
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, colorchooser
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from image_processor import generate_watermarked_image, add_watermark, get_position
 
@@ -16,26 +16,51 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+        # --- Configure main window grid ---
         self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure(2, minsize=350)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1) # Make preview area scalable
 
-        self.left_frame = customtkinter.CTkScrollableFrame(self, label_text="控制面板", width=300, corner_radius=0)
-        self.left_frame.grid(row=0, column=0, sticky="nswe")
+        # --- Create Frames ---
+        self.left_frame = customtkinter.CTkScrollableFrame(self, label_text="文件与输出", width=300, corner_radius=0)
+        self.left_frame.grid(row=0, column=0, rowspan=2, sticky="nswe")
 
-        self.center_frame = customtkinter.CTkFrame(self, corner_radius=0)
-        self.center_frame.grid(row=0, column=1, sticky="nswe", padx=10, pady=10)
-        self.center_frame.grid_rowconfigure(0, weight=1)
-        self.center_frame.grid_columnconfigure(0, weight=1)
-
-        self.right_frame = customtkinter.CTkFrame(self, corner_radius=0)
-        self.right_frame.grid(row=0, column=2, sticky="nswe")
-        self.right_frame.grid_rowconfigure(0, weight=1)
+        self.right_frame = customtkinter.CTkScrollableFrame(self, label_text="已选图片", corner_radius=0)
+        self.right_frame.grid(row=0, column=2, rowspan=2, sticky="nswe")
         self.right_frame.grid_columnconfigure(0, weight=1)
 
+        top_controls_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        top_controls_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=(10, 0))
+        top_controls_frame.grid_columnconfigure(1, weight=1)
+
+        self.preview_label = customtkinter.CTkLabel(self, text="请从右侧列表选择一张图片以预览效果", anchor="center")
+        self.preview_label.grid(row=1, column=1, sticky="nswe", padx=10, pady=10)
+        
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<Drop>>', self.handle_drop)
+        self.preview_label.bind("<Configure>", self.on_preview_resize)
+        self.preview_label.bind("<ButtonPress-1>", self.on_drag_start)
+        self.preview_label.bind("<B1-Motion>", self.on_drag_motion)
 
+        # --- Variables ---
+        self.output_format_var = customtkinter.StringVar(value="JPEG")
+        self.watermark_text_var = customtkinter.StringVar(value="Hello World")
+        self.font_name_var = customtkinter.StringVar(value="arial")
+        self.font_size_var = customtkinter.StringVar(value="50")
+        self.font_color_var = customtkinter.StringVar(value="white")
+        self.is_bold_var = customtkinter.BooleanVar(value=False)
+        self.is_italic_var = customtkinter.BooleanVar(value=False)
+        self.opacity_var = customtkinter.DoubleVar(value=70)
+        self.position_var = customtkinter.StringVar(value="bottom-right")
+        self.naming_rule_var = customtkinter.StringVar(value="原文件名")
+        self.prefix_suffix_var = customtkinter.StringVar(value="watermarked_")
+        self.shadow_enabled_var = customtkinter.BooleanVar(value=False)
+        self.shadow_color_var = customtkinter.StringVar(value="black")
+        self.jpeg_quality_var = customtkinter.IntVar(value=95)
+        self.resize_enabled_var = customtkinter.BooleanVar(value=False)
+        self.output_width_var = customtkinter.StringVar()
+        self.output_height_var = customtkinter.StringVar()
+
+        # --- Left Frame Widgets ---
         self.select_files_button = customtkinter.CTkButton(self.left_frame, text="选择图片", command=self.select_files)
         self.select_files_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
         self.select_folder_button = customtkinter.CTkButton(self.left_frame, text="选择文件夹", command=self.select_folder)
@@ -46,27 +71,96 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.output_dir_label.grid(row=3, column=0, padx=10, pady=0, sticky="ew")
         self.output_format_label = customtkinter.CTkLabel(self.left_frame, text="输出格式:")
         self.output_format_label.grid(row=4, column=0, padx=10, pady=(10, 0), sticky="w")
-        self.output_format_var = customtkinter.StringVar(value="JPEG")
-        self.jpeg_radio = customtkinter.CTkRadioButton(self.left_frame, text="JPEG", variable=self.output_format_var, value="JPEG")
+        self.jpeg_radio = customtkinter.CTkRadioButton(self.left_frame, text="JPEG", variable=self.output_format_var, value="JPEG", command=self._toggle_jpeg_quality_slider)
         self.jpeg_radio.grid(row=5, column=0, padx=20, pady=5, sticky="w")
-        self.png_radio = customtkinter.CTkRadioButton(self.left_frame, text="PNG", variable=self.output_format_var, value="PNG")
+        self.png_radio = customtkinter.CTkRadioButton(self.left_frame, text="PNG", variable=self.output_format_var, value="PNG", command=self._toggle_jpeg_quality_slider)
         self.png_radio.grid(row=6, column=0, padx=20, pady=0, sticky="w")
-        self.watermark_text_label = customtkinter.CTkLabel(self.left_frame, text="水印文本:")
-        self.watermark_text_label.grid(row=7, column=0, padx=10, pady=(20, 0), sticky="w")
-        self.watermark_text_var = customtkinter.StringVar(value="Hello World")
+
+        self.jpeg_quality_label = customtkinter.CTkLabel(self.left_frame, text="JPEG 质量: 95%")
+        self.jpeg_quality_label.grid(row=7, column=0, padx=10, pady=(10, 0), sticky="w")
+        self.jpeg_quality_slider = customtkinter.CTkSlider(self.left_frame, from_=1, to=100, variable=self.jpeg_quality_var, command=self._on_jpeg_quality_change)
+        self.jpeg_quality_slider.grid(row=8, column=0, padx=10, pady=(0, 10), sticky="ew")
+
+        self.naming_rule_label = customtkinter.CTkLabel(self.left_frame, text="命名规则:")
+        self.naming_rule_label.grid(row=9, column=0, padx=10, pady=(20, 0), sticky="w")
+        self.naming_rule_options = customtkinter.CTkSegmentedButton(self.left_frame, values=["原文件名", "加前缀", "加后缀"], variable=self.naming_rule_var, command=self.toggle_prefix_suffix_entry)
+        self.naming_rule_options.grid(row=10, column=0, padx=10, pady=5, sticky="ew")
+        self.prefix_suffix_entry = customtkinter.CTkEntry(self.left_frame, textvariable=self.prefix_suffix_var)
+
+        # --- Resize Controls ---
+        self.resize_checkbox = customtkinter.CTkCheckBox(self.left_frame, text="调整输出尺寸", variable=self.resize_enabled_var, command=self._toggle_resize_entries)
+        self.resize_checkbox.grid(row=11, column=0, padx=10, pady=(20, 5), sticky="w")
+
+        self.resize_frame = customtkinter.CTkFrame(self.left_frame, fg_color="transparent")
+        self.resize_frame.grid(row=12, column=0, padx=5, pady=0, sticky="ew")
+        self.resize_frame.grid_columnconfigure(1, weight=1)
+
+        self.width_label = customtkinter.CTkLabel(self.resize_frame, text="宽:")
+        self.width_label.grid(row=0, column=0, padx=(5, 2), pady=2)
+        self.width_entry = customtkinter.CTkEntry(self.resize_frame, textvariable=self.output_width_var)
+        self.width_entry.grid(row=0, column=1, padx=(0, 5), pady=2, sticky="ew")
+
+        self.height_label = customtkinter.CTkLabel(self.resize_frame, text="高:")
+        self.height_label.grid(row=1, column=0, padx=(5, 2), pady=2)
+        self.height_entry = customtkinter.CTkEntry(self.resize_frame, textvariable=self.output_height_var)
+        self.height_entry.grid(row=1, column=1, padx=(0, 5), pady=2, sticky="ew")
+
+        self.process_button = customtkinter.CTkButton(self.left_frame, text="开始处理", command=self.process_images)
+        self.process_button.grid(row=13, column=0, padx=10, pady=(20, 5), sticky="ew")
+        self.progressbar = customtkinter.CTkProgressBar(self.left_frame)
+        self.progressbar.grid(row=14, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.progressbar.set(0)
+
+        # --- Top Controls Widgets ---
+        # Row 0: Text
+        self.watermark_text_label = customtkinter.CTkLabel(top_controls_frame, text="水印文本:")
+        self.watermark_text_label.grid(row=0, column=0, padx=(10, 5), pady=5)
+        self.watermark_text_entry = customtkinter.CTkEntry(top_controls_frame, textvariable=self.watermark_text_var)
+        self.watermark_text_entry.grid(row=0, column=1, padx=(0, 10), pady=5, sticky="ew")
         self.watermark_text_var.trace_add("write", self._on_text_change)
-        self.watermark_text_entry = customtkinter.CTkEntry(self.left_frame, textvariable=self.watermark_text_var)
-        self.watermark_text_entry.grid(row=8, column=0, padx=10, pady=5, sticky="ew")
-        self.opacity_label = customtkinter.CTkLabel(self.left_frame, text="透明度: 70%")
-        self.opacity_label.grid(row=9, column=0, padx=10, pady=(10, 0), sticky="w")
-        self.opacity_var = customtkinter.DoubleVar(value=70)
-        self.opacity_slider = customtkinter.CTkSlider(self.left_frame, from_=0, to=100, variable=self.opacity_var, command=self._on_slider_move)
-        self.opacity_slider.grid(row=10, column=0, padx=10, pady=5, sticky="ew")
-        self.position_label = customtkinter.CTkLabel(self.left_frame, text="位置:")
-        self.position_label.grid(row=11, column=0, padx=10, pady=(10, 0), sticky="w")
-        self.position_var = customtkinter.StringVar(value="bottom-right")
-        position_frame = customtkinter.CTkFrame(self.left_frame)
-        position_frame.grid(row=12, column=0, padx=10, pady=5, sticky="ew")
+
+        # Row 1: Font
+        font_frame = customtkinter.CTkFrame(top_controls_frame, fg_color="transparent")
+        font_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        font_frame.grid_columnconfigure(1, weight=1)
+        self.font_name_label = customtkinter.CTkLabel(font_frame, text="字体:")
+        self.font_name_label.grid(row=0, column=0, padx=(0, 5))
+        self.font_name_menu = customtkinter.CTkOptionMenu(font_frame, variable=self.font_name_var, values=["arial", "times", "cour"], command=lambda _: self.update_preview())
+        self.font_name_menu.grid(row=0, column=1, padx=(0, 10), sticky="ew")
+        self.font_size_label = customtkinter.CTkLabel(font_frame, text="字号:")
+        self.font_size_label.grid(row=0, column=2, padx=(10, 5))
+        self.font_size_entry = customtkinter.CTkEntry(font_frame, textvariable=self.font_size_var, width=50)
+        self.font_size_entry.grid(row=0, column=3, padx=(0, 10))
+        self.font_size_var.trace_add("write", self._on_text_change)
+        self.font_color_button = customtkinter.CTkButton(font_frame, text="颜色", width=50, command=self.select_font_color)
+        self.font_color_button.grid(row=0, column=4, padx=(10, 5))
+        self.font_color_label = customtkinter.CTkLabel(font_frame, text=self.font_color_var.get(), width=60)
+        self.font_color_label.grid(row=0, column=5, padx=(0, 10))
+        self.bold_checkbox = customtkinter.CTkCheckBox(font_frame, text="粗体", variable=self.is_bold_var, command=self.update_preview)
+        self.bold_checkbox.grid(row=0, column=6, padx=10)
+        self.italic_checkbox = customtkinter.CTkCheckBox(font_frame, text="斜体", variable=self.is_italic_var, command=self.update_preview)
+        self.italic_checkbox.grid(row=0, column=7, padx=10)
+
+        # Row 2: Effects
+        effects_frame = customtkinter.CTkFrame(top_controls_frame, fg_color="transparent")
+        effects_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        effects_frame.grid_columnconfigure(1, weight=1)
+        self.opacity_label = customtkinter.CTkLabel(effects_frame, text="透明度: 70%")
+        self.opacity_label.grid(row=0, column=0, padx=(0, 5))
+        self.opacity_slider = customtkinter.CTkSlider(effects_frame, from_=0, to=100, variable=self.opacity_var, command=self._on_slider_move)
+        self.opacity_slider.grid(row=0, column=1, sticky="ew")
+        self.shadow_checkbox = customtkinter.CTkCheckBox(effects_frame, text="阴影", variable=self.shadow_enabled_var, command=self.update_preview)
+        self.shadow_checkbox.grid(row=0, column=2, padx=(10, 5))
+        self.shadow_color_button = customtkinter.CTkButton(effects_frame, text="阴影颜色", width=80, command=self.select_shadow_color)
+        self.shadow_color_button.grid(row=0, column=3, padx=(0, 5))
+        self.shadow_color_label = customtkinter.CTkLabel(effects_frame, text=self.shadow_color_var.get(), width=60)
+        self.shadow_color_label.grid(row=0, column=4, padx=(0, 10))
+
+        # Row 3: Position
+        self.position_label = customtkinter.CTkLabel(top_controls_frame, text="位置:")
+        self.position_label.grid(row=3, column=0, padx=(10, 5), pady=5)
+        position_frame = customtkinter.CTkFrame(top_controls_frame)
+        position_frame.grid(row=3, column=1, padx=(0, 10), pady=5, sticky="w")
         positions = {
             "top-left": "↖", "top-center": "↑", "top-right": "↗",
             "center-left": "←", "center": "C", "center-right": "→",
@@ -74,32 +168,10 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         }
         for i, (pos_name, pos_char) in enumerate(positions.items()):
             row, col = divmod(i, 3)
-            button = customtkinter.CTkButton(position_frame, text=pos_char, width=40, height=40,
-                                             command=lambda p=pos_name: self.set_position(p))
-            button.grid(row=row, column=col, padx=3, pady=3)
+            button = customtkinter.CTkButton(position_frame, text=pos_char, width=30, height=30, command=lambda p=pos_name: self.set_position(p))
+            button.grid(row=row, column=col, padx=2, pady=2)
 
-        self.naming_rule_label = customtkinter.CTkLabel(self.left_frame, text="命名规则:")
-        self.naming_rule_label.grid(row=13, column=0, padx=10, pady=(20, 0), sticky="w")
-        self.naming_rule_var = customtkinter.StringVar(value="原文件名")
-        self.naming_rule_options = customtkinter.CTkSegmentedButton(self.left_frame, values=["原文件名", "加前缀", "加后缀"], variable=self.naming_rule_var, command=self.toggle_prefix_suffix_entry)
-        self.naming_rule_options.grid(row=14, column=0, padx=10, pady=5, sticky="ew")
-        self.prefix_suffix_var = customtkinter.StringVar(value="watermarked_")
-        self.prefix_suffix_entry = customtkinter.CTkEntry(self.left_frame, textvariable=self.prefix_suffix_var)
-
-        self.process_button = customtkinter.CTkButton(self.left_frame, text="开始处理", command=self.process_images)
-        self.process_button.grid(row=16, column=0, padx=10, pady=(20, 5), sticky="ew")
-        self.progressbar = customtkinter.CTkProgressBar(self.left_frame)
-        self.progressbar.grid(row=17, column=0, padx=10, pady=(0, 10), sticky="ew")
-        self.progressbar.set(0)
-
-        self.preview_label = customtkinter.CTkLabel(self.center_frame, text="请从右侧列表选择一张图片以预览效果", anchor="center")
-        self.preview_label.grid(row=0, column=0, sticky="nswe")
-        self.preview_label.bind("<ButtonPress-1>", self.on_drag_start)
-        self.preview_label.bind("<B1-Motion>", self.on_drag_motion)
-
-        self.image_list_frame = customtkinter.CTkScrollableFrame(self.right_frame, label_text="已选图片")
-        self.image_list_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nswe")
-
+        # --- Instance Variables ---
         self.image_paths = []
         self.output_dir = ""
         self.thumbnail_images = []
@@ -112,6 +184,35 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
         self.load_settings()
         self.toggle_prefix_suffix_entry()
+        self._toggle_jpeg_quality_slider()
+        self._toggle_resize_entries()
+
+    def _on_jpeg_quality_change(self, value):
+        self.jpeg_quality_label.configure(text=f"JPEG 质量: {int(value)}%")
+
+    def _toggle_jpeg_quality_slider(self):
+        if self.output_format_var.get() == "JPEG":
+            self.jpeg_quality_label.grid(row=7, column=0, padx=10, pady=(10, 0), sticky="w")
+            self.jpeg_quality_slider.grid(row=8, column=0, padx=10, pady=(0, 10), sticky="ew")
+        else:
+            self.jpeg_quality_label.grid_forget()
+            self.jpeg_quality_slider.grid_forget()
+
+    def _toggle_resize_entries(self):
+        if self.resize_enabled_var.get():
+            self.resize_frame.grid(row=12, column=0, padx=5, pady=0, sticky="ew")
+        else:
+            self.resize_frame.grid_forget()
+
+    def on_preview_resize(self, event):
+        self.update_preview()
+
+    def select_font_color(self):
+        color_code = colorchooser.askcolor(title="Choose color")
+        if color_code and color_code[1]:
+            self.font_color_var.set(color_code[1])
+            self.font_color_label.configure(text=color_code[1])
+            self.update_preview()
 
     def on_drag_start(self, event):
         if self.preview_image_object:
@@ -148,7 +249,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             self.output_dir_label.configure(text=f"输出到:\n{self.output_dir}")
 
     def select_files(self):
-        filetypes = (("Image files", "*.jpg *.jpeg *.png"), ("All files", "*.*"))
+        filetypes = (("Image files", "*.jpg *.jpeg *.png *.bmp *.tiff"), ("All files", "*.*"))
         filepaths = filedialog.askopenfilenames(title="选择图片", initialdir="/", filetypes=filetypes)
         for path in filepaths:
             if path not in self.image_paths:
@@ -163,7 +264,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             return
         added_paths = []
         for filename in os.listdir(folder_path):
-            if filename.lower().endswith((".png", ".jpg", ".jpeg")):
+            if filename.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff")):
                 full_path = os.path.join(folder_path, filename)
                 if full_path not in self.image_paths:
                     self.image_paths.append(full_path)
@@ -190,13 +291,13 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.preview_label.configure(image=None, text="请从右侧列表选择一张图片以预览效果")
 
     def update_image_list(self):
-        for widget in self.image_list_frame.winfo_children():
+        for widget in self.right_frame.winfo_children():
             widget.destroy()
         self.thumbnail_images.clear()
 
         for i, path in enumerate(self.image_paths):
             try:
-                item_frame = customtkinter.CTkFrame(self.image_list_frame)
+                item_frame = customtkinter.CTkFrame(self.right_frame)
                 item_frame.pack(fill="x", padx=5, pady=5)
                 item_frame.grid_columnconfigure(1, weight=1)
 
@@ -228,6 +329,13 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.original_pil_image = None # Reset to force reload
         self.update_preview()
 
+    def select_shadow_color(self):
+        color_code = colorchooser.askcolor(title="Choose shadow color")
+        if color_code and color_code[1]:
+            self.shadow_color_var.set(color_code[1])
+            self.shadow_color_label.configure(text=color_code[1])
+            self.update_preview()
+
     def update_preview(self):
         if not self.selected_image_path:
             self.clear_preview()
@@ -237,8 +345,16 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             watermark_text = self.watermark_text_var.get()
             opacity = self.opacity_var.get()
             position = self.position_var.get()
-            font_size = 50
-            color = "white"
+            font_name = self.font_name_var.get()
+            try:
+                font_size = int(self.font_size_var.get())
+            except (ValueError, TypeError):
+                font_size = 50 # Default size if input is invalid
+            color = self.font_color_var.get()
+            is_bold = self.is_bold_var.get()
+            is_italic = self.is_italic_var.get()
+            shadow_enabled = self.shadow_enabled_var.get()
+            shadow_color = self.shadow_color_var.get()
 
             if self.original_pil_image is None:
                 self.original_pil_image = Image.open(self.selected_image_path).convert("RGBA")
@@ -261,11 +377,12 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                     final_position_str = "bottom-right"
 
             watermarked_pil_image, text_size = generate_watermarked_image(
-                self.original_pil_image, watermark_text, font_size, color, final_position_str, opacity
+                self.original_pil_image, watermark_text, font_size, color, final_position_str, opacity, font_name,
+                is_bold=is_bold, is_italic=is_italic, shadow_enabled=shadow_enabled, shadow_color=shadow_color
             )
 
-            panel_width = self.center_frame.winfo_width()
-            panel_height = self.center_frame.winfo_height()
+            panel_width = self.preview_label.winfo_width()
+            panel_height = self.preview_label.winfo_height()
             
             if panel_width < 2 or panel_height < 2:
                 self.after(100, self.update_preview)
@@ -300,7 +417,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         filepaths = self.tk.splitlist(event.data)
         added_paths = []
         for path in filepaths:
-            if path.lower().endswith((".png", ".jpg", ".jpeg")) and path not in self.image_paths:
+            if path.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff")) and path not in self.image_paths:
                 self.image_paths.append(path)
                 added_paths.append(path)
         
@@ -311,7 +428,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
     def toggle_prefix_suffix_entry(self, value=None):
         if self.naming_rule_var.get() in ["加前缀", "加后缀"]:
-            self.prefix_suffix_entry.grid(row=15, column=0, padx=10, pady=5, sticky="ew")
+            self.prefix_suffix_entry.grid(row=18, column=0, padx=10, pady=5, sticky="ew")
         else:
             self.prefix_suffix_entry.grid_forget()
 
@@ -326,11 +443,23 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         watermark_text = self.watermark_text_var.get()
         opacity = self.opacity_var.get()
         position = self.position_var.get()
-        font_size = 50
-        color = "white"
+        try:
+            font_size = int(self.font_size_var.get())
+        except (ValueError, TypeError):
+            font_size = 50 # Default size if input is invalid
+        font_name = self.font_name_var.get()
+        color = self.font_color_var.get()
+        is_bold = self.is_bold_var.get()
+        is_italic = self.is_italic_var.get()
+        shadow_enabled = self.shadow_enabled_var.get()
+        shadow_color = self.shadow_color_var.get()
         output_format = self.output_format_var.get()
         naming_rule = self.naming_rule_var.get()
         prefix_suffix = self.prefix_suffix_var.get()
+        jpeg_quality = self.jpeg_quality_var.get()
+        resize_enabled = self.resize_enabled_var.get()
+        output_width = self.output_width_var.get()
+        output_height = self.output_height_var.get()
 
         total_images = len(self.image_paths)
         self.progressbar.set(0)
@@ -370,7 +499,12 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
             add_watermark(
                 image_path, output_path, watermark_text, font_size, color,
-                final_position_str, opacity, output_format
+                final_position_str, opacity, output_format, font_name,
+                is_bold=is_bold, is_italic=is_italic, shadow_enabled=shadow_enabled, shadow_color=shadow_color,
+                jpeg_quality=jpeg_quality,
+                resize_enabled=resize_enabled,
+                output_width=output_width,
+                output_height=output_height
             )
             
             progress = (i + 1) / total_images
@@ -394,6 +528,17 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             "position": self.position_var.get(),
             "naming_rule": self.naming_rule_var.get(),
             "prefix_suffix": self.prefix_suffix_var.get(),
+            "font_name": self.font_name_var.get(),
+            "font_size": self.font_size_var.get(),
+            "font_color": self.font_color_var.get(),
+            "is_bold": self.is_bold_var.get(),
+            "is_italic": self.is_italic_var.get(),
+            "shadow_enabled": self.shadow_enabled_var.get(),
+            "shadow_color": self.shadow_color_var.get(),
+            "jpeg_quality": self.jpeg_quality_var.get(),
+            "resize_enabled": self.resize_enabled_var.get(),
+            "output_width": self.output_width_var.get(),
+            "output_height": self.output_height_var.get(),
         }
         try:
             with open("settings.json", "w") as f:
@@ -414,9 +559,25 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                     self.position_var.set(settings.get("position", "bottom-right"))
                     self.naming_rule_var.set(settings.get("naming_rule", "原文件名"))
                     self.prefix_suffix_var.set(settings.get("prefix_suffix", "watermarked_"))
+                    self.font_name_var.set(settings.get("font_name", "arial.ttf"))
+                    self.font_size_var.set(settings.get("font_size", "50"))
+                    self.font_color_var.set(settings.get("font_color", "white"))
+                    self.is_bold_var.set(settings.get("is_bold", False))
+                    self.is_italic_var.set(settings.get("is_italic", False))
+                    self.shadow_enabled_var.set(settings.get("shadow_enabled", False))
+                    self.shadow_color_var.set(settings.get("shadow_color", "black"))
+                    self.jpeg_quality_var.set(settings.get("jpeg_quality", 95))
+                    self.resize_enabled_var.set(settings.get("resize_enabled", False))
+                    self.output_width_var.set(settings.get("output_width", ""))
+                    self.output_height_var.set(settings.get("output_height", ""))
 
                     if self.output_dir:
                         self.output_dir_label.configure(text=f"输出到:\n{self.output_dir}")
                     self.opacity_label.configure(text=f"透明度: {int(self.opacity_var.get())}%")
+                    self.font_color_label.configure(text=self.font_color_var.get())
+                    self.shadow_color_label.configure(text=self.shadow_color_var.get())
+                    self._on_jpeg_quality_change(self.jpeg_quality_var.get())
+                    self._toggle_jpeg_quality_slider()
+                    self._toggle_resize_entries()
         except Exception as e:
             print(f"Error loading settings: {e}")
