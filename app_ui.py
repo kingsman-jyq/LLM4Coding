@@ -4,7 +4,7 @@ from PIL import Image, ImageTk
 import customtkinter
 from tkinter import filedialog, messagebox, colorchooser
 from tkinterdnd2 import DND_FILES, TkinterDnD
-from image_processor import generate_watermarked_image, add_watermark, get_position
+from image_processor import generate_watermarked_image, add_watermark, get_position, generate_image_watermarked_image
 
 class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
@@ -60,6 +60,12 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.output_width_var = customtkinter.StringVar()
         self.output_height_var = customtkinter.StringVar()
 
+        # --- Watermark Variables ---
+        self.watermark_type_var = customtkinter.StringVar(value="文本")
+        self.image_watermark_path_var = customtkinter.StringVar()
+        self.image_watermark_scale_var = customtkinter.DoubleVar(value=50)
+        self.image_watermark_opacity_var = customtkinter.DoubleVar(value=70)
+
         # --- Left Frame Widgets ---
         self.select_files_button = customtkinter.CTkButton(self.left_frame, text="选择图片", command=self.select_files)
         self.select_files_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
@@ -112,15 +118,29 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.progressbar.set(0)
 
         # --- Top Controls Widgets ---
+        self.watermark_type_switcher = customtkinter.CTkSegmentedButton(top_controls_frame, values=["文本", "图片"], variable=self.watermark_type_var, command=self._switch_watermark_type)
+        self.watermark_type_switcher.grid(row=0, column=0, columnspan=2, padx=10, pady=(0, 5), sticky="ew")
+
+        # --- Text Watermark Frame ---
+        self.text_watermark_frame = customtkinter.CTkFrame(top_controls_frame, fg_color="transparent")
+        self.text_watermark_frame.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        self.text_watermark_frame.grid_columnconfigure(1, weight=1)
+
+        # --- Image Watermark Frame ---
+        self.image_watermark_frame = customtkinter.CTkFrame(top_controls_frame, fg_color="transparent")
+        self.image_watermark_frame.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        self.image_watermark_frame.grid_columnconfigure(1, weight=1)
+
+        # --- Text Watermark Controls ---
         # Row 0: Text
-        self.watermark_text_label = customtkinter.CTkLabel(top_controls_frame, text="水印文本:")
+        self.watermark_text_label = customtkinter.CTkLabel(self.text_watermark_frame, text="水印文本:")
         self.watermark_text_label.grid(row=0, column=0, padx=(10, 5), pady=5)
-        self.watermark_text_entry = customtkinter.CTkEntry(top_controls_frame, textvariable=self.watermark_text_var)
+        self.watermark_text_entry = customtkinter.CTkEntry(self.text_watermark_frame, textvariable=self.watermark_text_var)
         self.watermark_text_entry.grid(row=0, column=1, padx=(0, 10), pady=5, sticky="ew")
         self.watermark_text_var.trace_add("write", self._on_text_change)
 
         # Row 1: Font
-        font_frame = customtkinter.CTkFrame(top_controls_frame, fg_color="transparent")
+        font_frame = customtkinter.CTkFrame(self.text_watermark_frame, fg_color="transparent")
         font_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
         font_frame.grid_columnconfigure(1, weight=1)
         self.font_name_label = customtkinter.CTkLabel(font_frame, text="字体:")
@@ -142,7 +162,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.italic_checkbox.grid(row=0, column=7, padx=10)
 
         # Row 2: Effects
-        effects_frame = customtkinter.CTkFrame(top_controls_frame, fg_color="transparent")
+        effects_frame = customtkinter.CTkFrame(self.text_watermark_frame, fg_color="transparent")
         effects_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
         effects_frame.grid_columnconfigure(1, weight=1)
         self.opacity_label = customtkinter.CTkLabel(effects_frame, text="透明度: 70%")
@@ -157,10 +177,26 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.shadow_color_label.grid(row=0, column=4, padx=(0, 10))
 
         # Row 3: Position
-        self.position_label = customtkinter.CTkLabel(top_controls_frame, text="位置:")
+        self.position_label = customtkinter.CTkLabel(self.text_watermark_frame, text="位置:")
         self.position_label.grid(row=3, column=0, padx=(10, 5), pady=5)
         position_frame = customtkinter.CTkFrame(top_controls_frame)
-        position_frame.grid(row=3, column=1, padx=(0, 10), pady=5, sticky="w")
+        position_frame.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="w")
+
+        # --- Image Watermark Controls ---
+        self.select_image_wm_button = customtkinter.CTkButton(self.image_watermark_frame, text="选择水印图片", command=self.select_image_watermark)
+        self.select_image_wm_button.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        self.image_wm_path_label = customtkinter.CTkLabel(self.image_watermark_frame, text="未选择图片", wraplength=280)
+        self.image_wm_path_label.grid(row=1, column=0, columnspan=2, padx=10, pady=0, sticky="ew")
+
+        self.image_wm_scale_label = customtkinter.CTkLabel(self.image_watermark_frame, text="缩放: 50%")
+        self.image_wm_scale_label.grid(row=2, column=0, padx=10, pady=(10, 0), sticky="w")
+        self.image_wm_scale_slider = customtkinter.CTkSlider(self.image_watermark_frame, from_=1, to=200, variable=self.image_watermark_scale_var, command=self._on_image_scale_change)
+        self.image_wm_scale_slider.grid(row=2, column=1, padx=10, pady=(10, 0), sticky="ew")
+
+        self.image_wm_opacity_label = customtkinter.CTkLabel(self.image_watermark_frame, text="透明度: 70%")
+        self.image_wm_opacity_label.grid(row=3, column=0, padx=10, pady=(10, 0), sticky="w")
+        self.image_wm_opacity_slider = customtkinter.CTkSlider(self.image_watermark_frame, from_=0, to=100, variable=self.image_watermark_opacity_var, command=self._on_image_opacity_change)
+        self.image_wm_opacity_slider.grid(row=3, column=1, padx=10, pady=(10, 0), sticky="ew")
         positions = {
             "top-left": "↖", "top-center": "↑", "top-right": "↗",
             "center-left": "←", "center": "C", "center-right": "→",
@@ -178,7 +214,8 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.selected_image_path = None
         self.preview_image_object = None
         self.original_pil_image = None
-        self.watermark_text_size = (0, 0)
+        self.watermark_original_size = (0, 0)
+        self.preview_watermark_size = (0, 0)
         self.drag_start_pos = None
         self.drag_start_watermark_pos = None
 
@@ -186,6 +223,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.toggle_prefix_suffix_entry()
         self._toggle_jpeg_quality_slider()
         self._toggle_resize_entries()
+        self._switch_watermark_type(self.watermark_type_var.get())
 
     def _on_jpeg_quality_change(self, value):
         self.jpeg_quality_label.configure(text=f"JPEG 质量: {int(value)}%")
@@ -204,8 +242,39 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         else:
             self.resize_frame.grid_forget()
 
+    def select_image_watermark(self):
+        filepath = filedialog.askopenfilename(title="选择水印图片", filetypes=(("PNG files", "*.png"), ("All files", "*.*")))
+        if filepath:
+            self.image_watermark_path_var.set(filepath)
+            self.image_wm_path_label.configure(text=os.path.basename(filepath))
+            self.update_preview()
+
+    def _on_image_scale_change(self, value):
+        self.image_wm_scale_label.configure(text=f"缩放: {int(value)}%")
+        self.update_preview()
+
+    def _on_image_opacity_change(self, value):
+        self.image_wm_opacity_label.configure(text=f"透明度: {int(value)}%")
+        self.update_preview()
+
+    def _switch_watermark_type(self, value):
+        if value == "文本":
+            self.image_watermark_frame.grid_forget()
+            self.text_watermark_frame.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        else:
+            self.text_watermark_frame.grid_forget()
+            self.image_watermark_frame.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        self.update_preview()
+
     def on_preview_resize(self, event):
         self.update_preview()
+
+    def select_shadow_color(self):
+        color_code = colorchooser.askcolor(title="Choose shadow color")
+        if color_code and color_code[1]:
+            self.shadow_color_var.set(color_code[1])
+            self.shadow_color_label.configure(text=color_code[1])
+            self.update_preview()
 
     def select_font_color(self):
         color_code = colorchooser.askcolor(title="Choose color")
@@ -219,7 +288,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             self.drag_start_pos = (event.x, event.y)
             current_pos_str = self.position_var.get()
             preview_size = self.preview_image_object.cget("size")
-            watermark_pos = get_position(preview_size, self.watermark_text_size, current_pos_str, margin=10)
+            watermark_pos = get_position(preview_size, self.preview_watermark_size, current_pos_str, margin=10)
             self.drag_start_watermark_pos = watermark_pos
 
     def on_drag_motion(self, event):
@@ -329,12 +398,36 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.original_pil_image = None # Reset to force reload
         self.update_preview()
 
-    def select_shadow_color(self):
-        color_code = colorchooser.askcolor(title="Choose shadow color")
-        if color_code and color_code[1]:
-            self.shadow_color_var.set(color_code[1])
-            self.shadow_color_label.configure(text=color_code[1])
-            self.update_preview()
+    def update_preview_panel(self, watermarked_pil_image):
+        panel_width = self.preview_label.winfo_width()
+        panel_height = self.preview_label.winfo_height()
+        
+        if panel_width < 2 or panel_height < 2:
+            self.after(100, self.update_preview)
+            return
+
+        img_aspect_ratio = watermarked_pil_image.width / watermarked_pil_image.height
+        panel_aspect_ratio = panel_width / panel_height
+
+        if img_aspect_ratio > panel_aspect_ratio:
+            new_width = panel_width - 10
+            new_height = int(new_width / img_aspect_ratio)
+        else:
+            new_height = panel_height - 10
+            new_width = int(new_height * img_aspect_ratio)
+
+        resized_img = watermarked_pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+        ctk_image = customtkinter.CTkImage(light_image=resized_img, dark_image=resized_img, size=(new_width, new_height))
+        self.preview_image_object = ctk_image
+        self.preview_label.configure(image=ctk_image, text="")
+
+        # Update watermark size for drag-and-drop based on preview scaling
+        if self.watermark_original_size[0] > 0 and self.original_pil_image.width > 0:
+            scale_w = new_width / self.original_pil_image.width
+            self.preview_watermark_size = (int(self.watermark_original_size[0] * scale_w), int(self.watermark_original_size[1] * scale_w))
+        else:
+            self.preview_watermark_size = (0, 0)
 
     def update_preview(self):
         if not self.selected_image_path:
@@ -342,73 +435,63 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             return
 
         try:
-            watermark_text = self.watermark_text_var.get()
-            opacity = self.opacity_var.get()
-            position = self.position_var.get()
-            font_name = self.font_name_var.get()
-            try:
-                font_size = int(self.font_size_var.get())
-            except (ValueError, TypeError):
-                font_size = 50 # Default size if input is invalid
-            color = self.font_color_var.get()
-            is_bold = self.is_bold_var.get()
-            is_italic = self.is_italic_var.get()
-            shadow_enabled = self.shadow_enabled_var.get()
-            shadow_color = self.shadow_color_var.get()
-
             if self.original_pil_image is None:
                 self.original_pil_image = Image.open(self.selected_image_path).convert("RGBA")
 
-            final_position_str = position
-            if ',' in position:
-                if self.preview_image_object:
-                    preview_size = self.preview_image_object.cget("size")
-                    original_size = self.original_pil_image.size
-                    try:
-                        preview_x, preview_y = map(float, position.split(','))
-                        scale_x = original_size[0] / preview_size[0]
-                        scale_y = original_size[1] / preview_size[1]
-                        original_x = int(preview_x * scale_x)
-                        original_y = int(preview_y * scale_y)
-                        final_position_str = f"{original_x},{original_y}"
-                    except (ValueError, ZeroDivisionError):
+            watermark_type = self.watermark_type_var.get()
+            position = self.position_var.get()
+
+            if watermark_type == "文本":
+                watermark_text = self.watermark_text_var.get()
+                opacity = self.opacity_var.get()
+                font_name = self.font_name_var.get()
+                try:
+                    font_size = int(self.font_size_var.get())
+                except (ValueError, TypeError):
+                    font_size = 50 # Default size if input is invalid
+                color = self.font_color_var.get()
+                is_bold = self.is_bold_var.get()
+                is_italic = self.is_italic_var.get()
+                shadow_enabled = self.shadow_enabled_var.get()
+                shadow_color = self.shadow_color_var.get()
+
+                final_position_str = position
+                if ',' in position:
+                    if self.preview_image_object:
+                        preview_size = self.preview_image_object.cget("size")
+                        original_size = self.original_pil_image.size
+                        try:
+                            preview_x, preview_y = map(float, position.split(','))
+                            scale_x = original_size[0] / preview_size[0]
+                            scale_y = original_size[1] / preview_size[1]
+                            original_x = int(preview_x * scale_x)
+                            original_y = int(preview_y * scale_y)
+                            final_position_str = f"{original_x},{original_y}"
+                        except (ValueError, ZeroDivisionError):
+                            final_position_str = "bottom-right"
+                    else:
                         final_position_str = "bottom-right"
-                else:
-                    final_position_str = "bottom-right"
 
-            watermarked_pil_image, text_size = generate_watermarked_image(
-                self.original_pil_image, watermark_text, font_size, color, final_position_str, opacity, font_name,
-                is_bold=is_bold, is_italic=is_italic, shadow_enabled=shadow_enabled, shadow_color=shadow_color
-            )
+                watermarked_pil_image, text_size = generate_watermarked_image(
+                    self.original_pil_image, watermark_text, font_size, color, final_position_str, opacity, font_name,
+                    is_bold=is_bold, is_italic=is_italic, shadow_enabled=shadow_enabled, shadow_color=shadow_color
+                )
+                self.watermark_original_size = text_size
+            else: # Image watermark
+                image_wm_path = self.image_watermark_path_var.get()
+                if not image_wm_path or not os.path.exists(image_wm_path):
+                    self.update_preview_panel(self.original_pil_image)
+                    return
+                
+                scale = self.image_watermark_scale_var.get()
+                opacity = self.image_watermark_opacity_var.get()
 
-            panel_width = self.preview_label.winfo_width()
-            panel_height = self.preview_label.winfo_height()
-            
-            if panel_width < 2 or panel_height < 2:
-                self.after(100, self.update_preview)
-                return
+                watermarked_pil_image, wm_size = generate_image_watermarked_image(
+                    self.original_pil_image, image_wm_path, scale, opacity, position
+                )
+                self.watermark_original_size = wm_size # Reuse for drag-and-drop
 
-            img_aspect_ratio = watermarked_pil_image.width / watermarked_pil_image.height
-            panel_aspect_ratio = panel_width / panel_height
-
-            if img_aspect_ratio > panel_aspect_ratio:
-                new_width = panel_width - 10
-                new_height = int(new_width / img_aspect_ratio)
-            else:
-                new_height = panel_height - 10
-                new_width = int(new_height * img_aspect_ratio)
-
-            resized_img = watermarked_pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-            ctk_image = customtkinter.CTkImage(light_image=resized_img, dark_image=resized_img, size=(new_width, new_height))
-            self.preview_image_object = ctk_image
-            self.preview_label.configure(image=ctk_image, text="")
-
-            original_text_w, original_text_h = text_size
-            if self.original_pil_image.width > 0 and self.original_pil_image.height > 0:
-                scale_w = new_width / self.original_pil_image.width
-                scale_h = new_height / self.original_pil_image.height
-                self.watermark_text_size = (int(original_text_w * scale_w), int(original_text_h * scale_h))
+            self.update_preview_panel(watermarked_pil_image)
 
         except Exception as e:
             print(f"无法更新预览: {e}")
@@ -440,9 +523,19 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             messagebox.showerror("错误", "列表中没有需要处理的图片。" )
             return
 
+        watermark_type = self.watermark_type_var.get()
+        position = self.position_var.get()
+        output_format = self.output_format_var.get()
+        naming_rule = self.naming_rule_var.get()
+        prefix_suffix = self.prefix_suffix_var.get()
+        jpeg_quality = self.jpeg_quality_var.get()
+        resize_enabled = self.resize_enabled_var.get()
+        output_width = self.output_width_var.get()
+        output_height = self.output_height_var.get()
+
+        # Text watermark specific
         watermark_text = self.watermark_text_var.get()
         opacity = self.opacity_var.get()
-        position = self.position_var.get()
         try:
             font_size = int(self.font_size_var.get())
         except (ValueError, TypeError):
@@ -453,13 +546,15 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         is_italic = self.is_italic_var.get()
         shadow_enabled = self.shadow_enabled_var.get()
         shadow_color = self.shadow_color_var.get()
-        output_format = self.output_format_var.get()
-        naming_rule = self.naming_rule_var.get()
-        prefix_suffix = self.prefix_suffix_var.get()
-        jpeg_quality = self.jpeg_quality_var.get()
-        resize_enabled = self.resize_enabled_var.get()
-        output_width = self.output_width_var.get()
-        output_height = self.output_height_var.get()
+
+        # Image watermark specific
+        image_wm_path = self.image_watermark_path_var.get()
+        image_wm_scale = self.image_watermark_scale_var.get()
+        image_wm_opacity = self.image_watermark_opacity_var.get()
+
+        if watermark_type == "图片" and (not image_wm_path or not os.path.exists(image_wm_path)):
+            messagebox.showerror("错误", "请先选择一个有效的水印图片。" )
+            return
 
         total_images = len(self.image_paths)
         self.progressbar.set(0)
@@ -498,13 +593,28 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             output_path = os.path.join(self.output_dir, new_name)
 
             add_watermark(
-                image_path, output_path, watermark_text, font_size, color,
-                final_position_str, opacity, output_format, font_name,
-                is_bold=is_bold, is_italic=is_italic, shadow_enabled=shadow_enabled, shadow_color=shadow_color,
+                image_path, output_path, 
+                watermark_type=watermark_type,
+                position=final_position_str, 
+                output_format=output_format, 
                 jpeg_quality=jpeg_quality,
-                resize_enabled=resize_enabled,
-                output_width=output_width,
-                output_height=output_height
+                resize_enabled=resize_enabled, 
+                output_width=output_width, 
+                output_height=output_height,
+                # Text-specific
+                text=watermark_text, 
+                font_size=font_size, 
+                font_color=color, 
+                opacity=opacity, 
+                font_name=font_name,
+                is_bold=is_bold, 
+                is_italic=is_italic, 
+                shadow_enabled=shadow_enabled, 
+                shadow_color=shadow_color,
+                # Image-specific
+                image_path_wm=image_wm_path,
+                image_scale=image_wm_scale,
+                image_opacity=image_wm_opacity
             )
             
             progress = (i + 1) / total_images
@@ -539,6 +649,10 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             "resize_enabled": self.resize_enabled_var.get(),
             "output_width": self.output_width_var.get(),
             "output_height": self.output_height_var.get(),
+            "watermark_type": self.watermark_type_var.get(),
+            "image_watermark_path": self.image_watermark_path_var.get(),
+            "image_watermark_scale": self.image_watermark_scale_var.get(),
+            "image_watermark_opacity": self.image_watermark_opacity_var.get(),
         }
         try:
             with open("settings.json", "w") as f:
@@ -571,6 +685,11 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                     self.output_width_var.set(settings.get("output_width", ""))
                     self.output_height_var.set(settings.get("output_height", ""))
 
+                    self.watermark_type_var.set(settings.get("watermark_type", "文本"))
+                    self.image_watermark_path_var.set(settings.get("image_watermark_path", ""))
+                    self.image_watermark_scale_var.set(settings.get("image_watermark_scale", 50))
+                    self.image_watermark_opacity_var.set(settings.get("image_watermark_opacity", 70))
+
                     if self.output_dir:
                         self.output_dir_label.configure(text=f"输出到:\n{self.output_dir}")
                     self.opacity_label.configure(text=f"透明度: {int(self.opacity_var.get())}%")
@@ -579,5 +698,9 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                     self._on_jpeg_quality_change(self.jpeg_quality_var.get())
                     self._toggle_jpeg_quality_slider()
                     self._toggle_resize_entries()
+                    self._switch_watermark_type(self.watermark_type_var.get())
+                    self.image_wm_path_label.configure(text=os.path.basename(self.image_watermark_path_var.get()) or "未选择图片")
+                    self._on_image_scale_change(self.image_watermark_scale_var.get())
+                    self._on_image_opacity_change(self.image_watermark_opacity_var.get())
         except Exception as e:
             print(f"Error loading settings: {e}")

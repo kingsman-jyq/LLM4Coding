@@ -45,7 +45,7 @@ def parse_color(color_str, opacity):
         except ValueError:
             print(f"Warning: Invalid color format '{color_str}'. Defaulting to white.")
             r, g, b = 255, 255, 255
-    return (r, g, b, int(255 * (opacity / 100)))
+    return (r, g, b, int(255 * ((100 - opacity) / 100)))
 
 def get_position(img_size, text_size, position, margin):
     """Calculates the (x, y) coordinates for the watermark text."""
@@ -126,7 +126,41 @@ def generate_watermarked_image(img, watermark_text, font_size, color, position, 
     watermarked_img = Image.alpha_composite(base_img, txt_layer)
     return watermarked_img, text_size
 
-def add_watermark(image_path, output_path, watermark_text, font_size, color, position, opacity, output_format, font_name="arial.ttf", is_bold=False, is_italic=False, shadow_enabled=False, shadow_color="black", shadow_offset=(2, 2), jpeg_quality=95, resize_enabled=False, output_width=None, output_height=None):
+def generate_image_watermarked_image(img, image_wm_path, scale, opacity, position):
+    """Applies an image watermark to a PIL Image object."""
+    base_img = img.copy().convert("RGBA")
+    
+    try:
+        watermark = Image.open(image_wm_path).convert("RGBA")
+    except FileNotFoundError:
+        print(f"Warning: Watermark image not found at {image_wm_path}")
+        return base_img, (0, 0)
+
+    # Scale watermark
+    scale_factor = scale / 100
+    wm_width = int(base_img.width * scale_factor)
+    aspect_ratio = watermark.height / watermark.width
+    wm_height = int(wm_width * aspect_ratio)
+    watermark = watermark.resize((wm_width, wm_height), Image.Resampling.LANCZOS)
+
+    # Apply opacity
+    if opacity < 100:
+        alpha = watermark.split()[3]
+        alpha = alpha.point(lambda p: p * ((100 - opacity) / 100))
+        watermark.putalpha(alpha)
+
+    # Position watermark
+    wm_size = watermark.size
+    paste_position = get_position(base_img.size, wm_size, position, margin=10)
+
+    # Create a transparent layer and paste the watermark onto it
+    txt_layer = Image.new("RGBA", base_img.size, (255, 255, 255, 0))
+    txt_layer.paste(watermark, paste_position, watermark)
+
+    watermarked_img = Image.alpha_composite(base_img, txt_layer)
+    return watermarked_img, wm_size
+
+def add_watermark(image_path, output_path, watermark_type, position, output_format, jpeg_quality=95, resize_enabled=False, output_width=None, output_height=None, text="", font_size=50, font_color="white", opacity=70, font_name="arial.ttf", is_bold=False, is_italic=False, shadow_enabled=False, shadow_color="black", image_path_wm=None, image_scale=50, image_opacity=70, **kwargs):
     """Adds a watermark to an image and saves it to the specified output path."""
     try:
         with Image.open(image_path) as img:
@@ -149,8 +183,17 @@ def add_watermark(image_path, output_path, watermark_text, font_size, color, pos
                     print(f"Invalid resize dimensions for {os.path.basename(image_path)}: {e}. Skipping resize.")
 
             img = img.convert("RGBA")
-            watermarked_img, _ = generate_watermarked_image(img, watermark_text, font_size, color, position, opacity, font_name, is_bold, is_italic, shadow_enabled, shadow_color, shadow_offset)
-            
+
+            if watermark_type == "文本":
+                watermarked_img, _ = generate_watermarked_image(
+                    img, text, font_size, font_color, position, opacity, font_name, 
+                    is_bold, is_italic, shadow_enabled, shadow_color
+                )
+            else: # Image watermark
+                watermarked_img, _ = generate_image_watermarked_image(
+                    img, image_path_wm, image_scale, image_opacity, position
+                )
+
             save_format = output_format.upper()
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
